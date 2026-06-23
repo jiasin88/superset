@@ -41,5 +41,6 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: workflow_run" \
             -H "X-Hub-Signature-256: ${{ steps.sign.outputs.sig }}" \
+            -H "ngrok-skip-browser-warning: true" \
             -d '${{ steps.sign.outputs.payload }}' \
             --max-time 30

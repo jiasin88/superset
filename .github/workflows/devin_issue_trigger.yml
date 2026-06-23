@@ -23,6 +23,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: issues" \
             -H "X-Hub-Signature-256: ${{ steps.sign.outputs.sig }}" \
+            -H "ngrok-skip-browser-warning: true" \
             -d '${{ toJson(github.event) }}' \
             --max-time 30 \
             --fail-with-body
