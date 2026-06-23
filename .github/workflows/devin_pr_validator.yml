@@ -2,7 +2,7 @@ name: Devin PR Validator
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, reopened]
     branches:
       - master
       - main
@@ -51,6 +51,7 @@ jobs:
 
       - name: Post PR checklist comment
         uses: actions/github-script@v7
+        continue-on-error: true
         with:
           script: |
             await github.rest.issues.createComment({
