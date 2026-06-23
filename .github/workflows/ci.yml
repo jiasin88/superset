@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - 'devin/**'
+  pull_request:
+    branches:
+      - master
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements/testing.txt
+
+      - name: Run pytest
+        run: |
+          pytest tests/unit_tests/ -x -q --timeout=120 --tb=short 2>&1 | head -100
+        continue-on-error: false
+
+      - name: Run flake8
+        run: |
+          pip install flake8
+          flake8 superset/ --max-line-length=79 --select=E501,E302,E303 --count
+        continue-on-error: true
+
+      - name: Run safety check
+        run: |
+          pip install safety
+          safety check --json || true
+        continue-on-error: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+        continue-on-error: true

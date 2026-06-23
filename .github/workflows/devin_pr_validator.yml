@@ -1,0 +1,51 @@
+name: Devin PR Validator
+
+on:
+  pull_request:
+    types: [opened]
+    branches:
+      - master
+      - main
+
+jobs:
+  notify-orchestrator:
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'devin/')
+
+    steps:
+      - name: Generate webhook signature
+        id: sign
+        run: |
+          PAYLOAD='${{ toJson(github.event) }}'
+          SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}" | awk '{print "sha256="$2}')
+          echo "sig=$SIG" >> $GITHUB_OUTPUT
+
+      - name: Notify Orchestrator of PR opened
+        run: |
+          curl -X POST "${{ secrets.ORCHESTRATOR_URL }}/webhook/github" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: pull_request" \
+            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.sig }}" \
+            -d '${{ toJson(github.event) }}' \
+            --max-time 30
+
+      - name: Post PR checklist comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## Devin Auto-Remediation PR
+
+            This PR was automatically created by Devin AI as part of the auto-remediation system.
+
+            ### Review Checklist
+            - [ ] Review all changed files
+            - [ ] Verify tests pass in CI
+            - [ ] Confirm the fix addresses the issue described
+            - [ ] Check for any unintended side effects
+
+            > **Note**: CI must pass before merging. A human reviewer must approve this PR.`
+            })

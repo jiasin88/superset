@@ -1,0 +1,34 @@
+name: Devin Issue Trigger
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  dispatch-to-devin:
+    runs-on: ubuntu-latest
+    if: github.event.label.name == 'devin-autofix'
+
+    steps:
+      - name: Generate webhook signature
+        id: sign
+        run: |
+          PAYLOAD='${{ toJson(github.event) }}'
+          SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}" | awk '{print "sha256="$2}')
+          echo "sig=$SIG" >> $GITHUB_OUTPUT
+
+      - name: Call Orchestrator
+        run: |
+          curl -X POST "${{ secrets.ORCHESTRATOR_URL }}/webhook/github" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: issues" \
+            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.sig }}" \
+            -d '${{ toJson(github.event) }}' \
+            --max-time 30 \
+            --fail-with-body
+
+      - name: Log dispatch
+        if: always()
+        run: |
+          echo "Dispatched issue #${{ github.event.issue.number }} to orchestrator"
+          echo "Issue: ${{ github.event.issue.title }}"

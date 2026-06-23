@@ -1,0 +1,45 @@
+name: Devin CI Healer
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+jobs:
+  send-logs-to-devin:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      startsWith(github.event.workflow_run.head_branch, 'devin/')
+
+    steps:
+      - name: Fetch CI failure logs
+        id: fetch-logs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 | head -200 || echo "Could not fetch logs")
+          # Escape for JSON
+          LOGS_ESCAPED=$(echo "$LOGS" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))")
+          echo "logs=$LOGS_ESCAPED" >> $GITHUB_OUTPUT
+
+      - name: Generate webhook signature
+        id: sign
+        run: |
+          PAYLOAD=$(cat <<'PAYLOAD_EOF'
+          {"action": "completed", "workflow_run": ${{ toJson(github.event.workflow_run) }}, "repository": ${{ toJson(github.event.repository) }}, "logs": ${{ steps.fetch-logs.outputs.logs }}}
+          PAYLOAD_EOF
+          )
+          SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}" | awk '{print "sha256="$2}')
+          echo "sig=$SIG" >> $GITHUB_OUTPUT
+          echo "payload=$PAYLOAD" >> $GITHUB_OUTPUT
+
+      - name: Notify Orchestrator of CI failure
+        run: |
+          curl -X POST "${{ secrets.ORCHESTRATOR_URL }}/webhook/github" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: workflow_run" \
+            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.sig }}" \
+            -d '${{ steps.sign.outputs.payload }}' \
+            --max-time 30
