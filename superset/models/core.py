@@ -115,16 +115,16 @@ if TYPE_CHECKING:
 class KeyValue(Model):  # pylint: disable=too-few-public-methods
     """Used for any type of key-value store"""
 
-    __tablename__ = "keyvalue"
-    id = Column(Integer, primary_key=True)
-    value = Column(utils.MediumText(), nullable=False)
+    __tablename__: str = "keyvalue"
+    id: int = Column(Integer, primary_key=True)
+    value: str = Column(utils.MediumText(), nullable=False)
 
 
 class CssTemplate(AuditMixinNullable, UUIDMixin, Model):
     """CSS templates for dashboards"""
 
-    __tablename__ = "css_templates"
-    id = Column(Integer, primary_key=True)
+    __tablename__: str = "css_templates"
+    id: int = Column(Integer, primary_key=True)
     template_name = Column(String(250))
     css = Column(utils.MediumText(), default="")
 
@@ -132,13 +132,13 @@ class CssTemplate(AuditMixinNullable, UUIDMixin, Model):
 class Theme(AuditMixinNullable, ImportExportMixin, Model):
     """Themes for dashboards"""
 
-    __tablename__ = "themes"
+    __tablename__: str = "themes"
     __table_args__ = (
         sqla.Index("idx_theme_is_system_default", "is_system_default"),
         sqla.Index("idx_theme_is_system_dark", "is_system_dark"),
     )
 
-    id = Column(Integer, primary_key=True)
+    id: int = Column(Integer, primary_key=True)
     theme_name = Column(String(250))
     json_data = Column(utils.MediumText(), default="")
     is_system = Column(Boolean, default=False, nullable=False)
@@ -174,29 +174,29 @@ class ConfigurationMethod(StrEnum):
 class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: disable=too-many-public-methods
     """An ORM object that stores Database related information"""
 
-    __tablename__ = "dbs"
+    __tablename__: str = "dbs"
     type: str = "table"
     __table_args__ = (UniqueConstraint("database_name"),)
 
     id = Column(Integer, primary_key=True)
-    verbose_name = Column(String(250), unique=True)
+    verbose_name: str | None = Column(String(250), unique=True)
     # short unique name, used in permissions
     database_name = Column(String(250), unique=True, nullable=False)
-    sqlalchemy_uri = Column(String(1024), nullable=False)
-    password = Column(encrypted_field_factory.create(String(1024)))
-    cache_timeout = Column(Integer)
-    select_as_create_table_as = Column(Boolean, default=False)
-    expose_in_sqllab = Column(Boolean, default=True)
-    configuration_method = Column(
+    sqlalchemy_uri: str = Column(String(1024), nullable=False)
+    password: str | None = Column(encrypted_field_factory.create(String(1024)))
+    cache_timeout: int | None = Column(Integer)
+    select_as_create_table_as: bool | None = Column(Boolean, default=False)
+    expose_in_sqllab: bool | None = Column(Boolean, default=True)
+    configuration_method: str | None = Column(
         String(255), server_default=ConfigurationMethod.SQLALCHEMY_FORM.value
     )
-    allow_run_async = Column(Boolean, default=False)
-    allow_file_upload = Column(Boolean, default=False)
-    allow_ctas = Column(Boolean, default=False)
-    allow_cvas = Column(Boolean, default=False)
-    allow_dml = Column(Boolean, default=False)
-    force_ctas_schema = Column(String(250))
-    extra = Column(
+    allow_run_async: bool | None = Column(Boolean, default=False)
+    allow_file_upload: bool | None = Column(Boolean, default=False)
+    allow_ctas: bool | None = Column(Boolean, default=False)
+    allow_cvas: bool | None = Column(Boolean, default=False)
+    allow_dml: bool | None = Column(Boolean, default=False)
+    force_ctas_schema: str | None = Column(String(250))
+    extra: str | None = Column(
         Text,
         default=textwrap.dedent(
             """\
@@ -209,11 +209,15 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
     """
         ),
     )
-    encrypted_extra = Column(encrypted_field_factory.create(Text), nullable=True)
-    impersonate_user = Column(Boolean, default=False)
-    server_cert = Column(encrypted_field_factory.create(Text), nullable=True)
-    is_managed_externally = Column(Boolean, nullable=False, default=False)
-    external_url = Column(Text, nullable=True)
+    encrypted_extra: str | None = Column(
+        encrypted_field_factory.create(Text), nullable=True
+    )
+    impersonate_user: bool | None = Column(Boolean, default=False)
+    server_cert: str | None = Column(
+        encrypted_field_factory.create(Text), nullable=True
+    )
+    is_managed_externally: bool = Column(Boolean, nullable=False, default=False)
+    external_url: str | None = Column(Text, nullable=True)
 
     export_fields: list[str] = [
         "database_name",
@@ -1451,34 +1455,38 @@ class DatabaseUserOAuth2Tokens(Model, AuditMixinNullable):
     Store OAuth2 tokens, for authenticating to DBs using user personal tokens.
     """
 
-    __tablename__ = "database_user_oauth2_tokens"
+    __tablename__: str = "database_user_oauth2_tokens"
     __table_args__ = (sqla.Index("idx_user_id_database_id", "user_id", "database_id"),)
 
-    id = Column(Integer, primary_key=True)
+    id: int = Column(Integer, primary_key=True)
 
-    user_id = Column(
+    user_id: int = Column(
         Integer,
         ForeignKey("ab_user.id", ondelete="CASCADE"),
         nullable=False,
     )
-    user = relationship(security_manager.user_model, foreign_keys=[user_id])
+    user: Any = relationship(security_manager.user_model, foreign_keys=[user_id])
 
-    database_id = Column(
+    database_id: int = Column(
         Integer,
         ForeignKey("dbs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    database = relationship("Database", foreign_keys=[database_id])
+    database: Database = relationship("Database", foreign_keys=[database_id])
 
-    access_token = Column(encrypted_field_factory.create(Text), nullable=True)
-    access_token_expiration = Column(DateTime, nullable=True)
-    refresh_token = Column(encrypted_field_factory.create(Text), nullable=True)
+    access_token: str | None = Column(
+        encrypted_field_factory.create(Text), nullable=True
+    )
+    access_token_expiration: datetime | None = Column(DateTime, nullable=True)
+    refresh_token: str | None = Column(
+        encrypted_field_factory.create(Text), nullable=True
+    )
 
 
 class Log(Model):  # pylint: disable=too-few-public-methods
     """ORM object used to log Superset actions to the database"""
 
-    __tablename__ = "logs"
+    __tablename__: str = "logs"
 
     id = Column(Integer, primary_key=True)
     action = Column(String(512))
@@ -1486,7 +1494,7 @@ class Log(Model):  # pylint: disable=too-few-public-methods
     dashboard_id = Column(Integer)
     slice_id = Column(Integer)
     json = Column(utils.MediumText())
-    user = relationship(
+    user: Any = relationship(
         security_manager.user_model, backref="logs", foreign_keys=[user_id]
     )
     dttm = Column(DateTime, default=datetime.utcnow)
@@ -1500,9 +1508,9 @@ class FavStarClassName(StrEnum):
 
 
 class FavStar(UUIDMixin, Model):
-    __tablename__ = "favstar"
+    __tablename__: str = "favstar"
 
-    id = Column(Integer, primary_key=True)
+    id: int = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("ab_user.id"))
     class_name = Column(String(50))
     obj_id = Column(Integer)
