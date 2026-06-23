@@ -13,34 +13,52 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'devin/')
 
     steps:
-      - name: Fetch CI failure logs
-        id: fetch-logs
+      - name: Build payload, sign, and notify orchestrator
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEBHOOK_SECRET: ${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}
+          ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_RUN_JSON: ${{ toJson(github.event.workflow_run) }}
+          REPOSITORY_JSON: ${{ toJson(github.event.repository) }}
         run: |
-          RUN_ID="${{ github.event.workflow_run.id }}"
-          LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 | head -200 || echo "Could not fetch logs")
-          # Escape for JSON
-          LOGS_ESCAPED=$(echo "$LOGS" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))")
-          echo "logs=$LOGS_ESCAPED" >> $GITHUB_OUTPUT
+          # Fetch CI failure logs (truncated to avoid huge payloads)
+          export LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 | head -200 || echo "Could not fetch logs")
 
-      - name: Generate webhook signature
-        id: sign
-        run: |
-          PAYLOAD=$(cat <<'PAYLOAD_EOF'
-          {"action": "completed", "workflow_run": ${{ toJson(github.event.workflow_run) }}, "repository": ${{ toJson(github.event.repository) }}, "logs": ${{ steps.fetch-logs.outputs.logs }}}
-          PAYLOAD_EOF
-          )
-          SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}" | awk '{print "sha256="$2}')
-          echo "sig=$SIG" >> $GITHUB_OUTPUT
-          echo "payload=$PAYLOAD" >> $GITHUB_OUTPUT
+          # Build payload via Python to handle JSON escaping correctly
+          python3 - <<'PYEOF'
+          import json, os, subprocess, sys, hmac, hashlib
 
-      - name: Notify Orchestrator of CI failure
-        run: |
-          curl -X POST "${{ secrets.ORCHESTRATOR_URL }}/webhook/github" \
-            -H "Content-Type: application/json" \
-            -H "X-GitHub-Event: workflow_run" \
-            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.sig }}" \
-            -H "ngrok-skip-browser-warning: true" \
-            -d '${{ steps.sign.outputs.payload }}' \
-            --max-time 30
+          logs = os.environ.get("LOGS", "")
+          workflow_run = json.loads(os.environ["WORKFLOW_RUN_JSON"])
+          repository = json.loads(os.environ["REPOSITORY_JSON"])
+
+          payload = json.dumps({
+              "action": "completed",
+              "workflow_run": workflow_run,
+              "repository": repository,
+              "logs": logs,
+          })
+
+          secret = os.environ["WEBHOOK_SECRET"].encode()
+          sig = "sha256=" + hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+
+          orchestrator_url = os.environ["ORCHESTRATOR_URL"]
+
+          result = subprocess.run([
+              "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+              "-X", "POST", f"{orchestrator_url}/webhook/github",
+              "-H", "Content-Type: application/json",
+              "-H", f"X-GitHub-Event: workflow_run",
+              "-H", f"X-Hub-Signature-256: {sig}",
+              "-H", "ngrok-skip-browser-warning: true",
+              "--data", payload,
+              "--max-time", "30",
+          ], capture_output=True, text=True)
+
+          print(f"HTTP status: {result.stdout}")
+          if result.returncode != 0:
+              print(f"curl error: {result.stderr}", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+        shell: bash
