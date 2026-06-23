@@ -145,7 +145,7 @@ class Theme(AuditMixinNullable, ImportExportMixin, Model):
     is_system_default = Column(Boolean, default=False, nullable=False)
     is_system_dark = Column(Boolean, default=False, nullable=False)
 
-    export_fields = ["theme_name", "json_data"]
+    export_fields: list[str] = ["theme_name", "json_data"]
 
 
 # Event listeners to clear the memoized bootstrap data cache when a theme is modified
@@ -175,7 +175,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
     """An ORM object that stores Database related information"""
 
     __tablename__ = "dbs"
-    type = "table"
+    type: str = "table"
     __table_args__ = (UniqueConstraint("database_name"),)
 
     id = Column(Integer, primary_key=True)
@@ -215,7 +215,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
     is_managed_externally = Column(Boolean, nullable=False, default=False)
     external_url = Column(Text, nullable=True)
 
-    export_fields = [
+    export_fields: list[str] = [
         "database_name",
         "sqlalchemy_uri",
         "cache_timeout",
@@ -229,7 +229,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
         "impersonate_user",
         "configuration_method",
     ]
-    extra_import_fields = [
+    extra_import_fields: list[str] = [
         "password",
         "is_managed_externally",
         "external_url",
@@ -237,7 +237,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
         "impersonate_user",
         "ssh_tunnel",
     ]
-    export_children = ["tables"]
+    export_children: list[str] = ["tables"]
 
     def __repr__(self) -> str:
         return self.name
@@ -840,7 +840,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
         sql: str,
         catalog: str | None = None,
         schema: str | None = None,
-        mutator: Callable[[pd.DataFrame], None] | None = None,
+        mutator: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
     ) -> pd.DataFrame:
         cursor, rows, description = self._execute_sql_with_mutation_and_logging(
             sql, catalog, schema, fetch_last_result=True
