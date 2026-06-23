@@ -13,52 +13,39 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'devin/')
 
     steps:
-      - name: Build payload, sign, and notify orchestrator
+      - name: Send CI failure to orchestrator
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WEBHOOK_SECRET: ${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}
           ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           WORKFLOW_RUN_JSON: ${{ toJson(github.event.workflow_run) }}
           REPOSITORY_JSON: ${{ toJson(github.event.repository) }}
         run: |
-          # Fetch CI failure logs (truncated to avoid huge payloads)
           export LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 | head -200 || echo "Could not fetch logs")
 
-          # Build payload via Python to handle JSON escaping correctly
           python3 - <<'PYEOF'
-          import json, os, subprocess, sys, hmac, hashlib
-
-          logs = os.environ.get("LOGS", "")
-          workflow_run = json.loads(os.environ["WORKFLOW_RUN_JSON"])
-          repository = json.loads(os.environ["REPOSITORY_JSON"])
+          import json, os, subprocess, sys
 
           payload = json.dumps({
               "action": "completed",
-              "workflow_run": workflow_run,
-              "repository": repository,
-              "logs": logs,
+              "workflow_run": json.loads(os.environ["WORKFLOW_RUN_JSON"]),
+              "repository":   json.loads(os.environ["REPOSITORY_JSON"]),
+              "logs":         os.environ.get("LOGS", ""),
           })
 
-          secret = os.environ["WEBHOOK_SECRET"].encode()
-          sig = "sha256=" + hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
-
-          orchestrator_url = os.environ["ORCHESTRATOR_URL"]
+          url = os.environ["ORCHESTRATOR_URL"]
 
           result = subprocess.run([
-              "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-              "-X", "POST", f"{orchestrator_url}/webhook/github",
+              "curl", "-s", "-w", "\nHTTP_STATUS:%{http_code}",
+              "-X", "POST", f"{url}/webhook/github",
               "-H", "Content-Type: application/json",
-              "-H", f"X-GitHub-Event: workflow_run",
-              "-H", f"X-Hub-Signature-256: {sig}",
-              "-H", "ngrok-skip-browser-warning: true",
+              "-H", "X-GitHub-Event: workflow_run",
               "--data", payload,
               "--max-time", "30",
           ], capture_output=True, text=True)
 
-          print(f"HTTP status: {result.stdout}")
+          print(result.stdout[-300:])
           if result.returncode != 0:
-              print(f"curl error: {result.stderr}", file=sys.stderr)
+              print(result.stderr, file=sys.stderr)
               sys.exit(1)
           PYEOF
-        shell: bash

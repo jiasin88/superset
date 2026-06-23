@@ -10,20 +10,15 @@ jobs:
     if: github.event.label.name == 'devin-autofix'
 
     steps:
-      - name: Sign payload and call orchestrator
+      - name: Send event to orchestrator
         env:
           EVENT_JSON: ${{ toJson(github.event) }}
-          WEBHOOK_SECRET: ${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}
           ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           python3 - <<'PYEOF'
-          import json, os, subprocess, sys, hmac, hashlib
+          import os, subprocess, sys
 
           payload = os.environ["EVENT_JSON"]
-          secret  = os.environ["WEBHOOK_SECRET"].encode()
-          sig     = "sha256=" + hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
           url     = os.environ["ORCHESTRATOR_URL"]
 
           result = subprocess.run([
@@ -31,26 +26,19 @@ jobs:
               "-X", "POST", f"{url}/webhook/github",
               "-H", "Content-Type: application/json",
               "-H", "X-GitHub-Event: issues",
-              "-H", f"X-Hub-Signature-256: {sig}",
-              "-H", "ngrok-skip-browser-warning: true",
               "--data", payload,
               "--max-time", "30",
           ], capture_output=True, text=True)
 
-          print(result.stdout[-200:])
+          print(result.stdout[-300:])
           if result.returncode != 0:
-              print(f"curl error: {result.stderr}", file=sys.stderr)
+              print(result.stderr, file=sys.stderr)
               sys.exit(1)
 
-          # Extract HTTP status code
           for line in result.stdout.splitlines():
               if line.startswith("HTTP_STATUS:"):
                   status = int(line.split(":")[1])
                   if status >= 400:
                       print(f"Orchestrator returned HTTP {status}", file=sys.stderr)
                       sys.exit(1)
-
-          issue_num   = os.environ.get("ISSUE_NUMBER", "?")
-          issue_title = os.environ.get("ISSUE_TITLE", "")
-          print(f"Dispatched issue #{issue_num}: {issue_title}")
           PYEOF
