@@ -26,12 +26,13 @@ import logging
 import textwrap
 import threading
 from ast import literal_eval
+from collections.abc import Iterator
 from contextlib import closing, contextmanager, nullcontext, suppress
 from copy import deepcopy
 from datetime import datetime
 from functools import lru_cache
 from inspect import signature
-from typing import Any, Callable, cast, Optional, TYPE_CHECKING
+from typing import Any, Callable, cast, TYPE_CHECKING
 from urllib.parse import quote
 
 import numpy
@@ -459,7 +460,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
         schema: str | None = None,
         nullpool: bool = True,
         source: utils.QuerySource | None = None,
-    ) -> Engine:
+    ) -> Iterator[Engine]:
         """
         Context manager for a SQLAlchemy engine.
 
@@ -655,7 +656,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
         schema: str | None = None,
         nullpool: bool = True,
         source: utils.QuerySource | None = None,
-    ) -> Connection:
+    ) -> Iterator[Connection]:
         with self.get_sqla_engine(
             catalog=catalog,
             schema=schema,
@@ -679,7 +680,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
         return self.db_engine_spec.get_default_schema(self, catalog)
 
     def get_default_schema_for_query(
-        self, query: Query, template_params: Optional[dict[str, Any]] = None
+        self, query: Query, template_params: dict[str, Any] | None = None
     ) -> str | None:
         """
         Return the default schema for a given query.
@@ -1054,7 +1055,7 @@ class Database(CoreDatabase, AuditMixinNullable, ImportExportMixin):  # pylint: 
         self,
         catalog: str | None = None,
         schema: str | None = None,
-    ) -> Inspector:
+    ) -> Iterator[Inspector]:
         with self.get_sqla_engine(catalog=catalog, schema=schema) as engine:
             yield sqla.inspect(engine)
 
