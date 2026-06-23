@@ -340,7 +340,7 @@ class SnowflakeEngineSpec(PostgresBaseEngineSpec):
             return False
 
         try:
-            cursor.execute(f"SELECT SYSTEM$CANCEL_ALL_QUERIES({cancel_query_id})")
+            cursor.execute("SELECT SYSTEM$CANCEL_ALL_QUERIES(%s)", (cancel_query_id,))
         except Exception:  # pylint: disable=broad-except
             return False
 

@@ -356,7 +356,8 @@ class RedshiftEngineSpec(BasicParametersMixin, PostgresBaseEngineSpec):
             cursor.execute(
                 "SELECT pg_cancel_backend(procpid) "  # noqa: S608
                 "FROM pg_stat_activity "
-                f"WHERE procpid='{cancel_query_id}'"
+                "WHERE procpid = %(pid)s",
+                {"pid": int(cancel_query_id)},
             )
             cursor.close()
         except Exception:  # pylint: disable=broad-except

@@ -1242,6 +1242,20 @@ class ExploreMixin:  # pylint: disable=too-many-public-methods
                     )
         return expression
 
+    @staticmethod
+    def _validate_where_having_clause(clause: str) -> None:
+        """
+        Defense-in-depth validation for user-provided WHERE/HAVING clauses.
+
+        Rejects clauses that contain multiple SQL statements (statement stacking)
+        to prevent injection attacks that bypass expression-level validation.
+        """
+        stripped = clause.strip().rstrip(";")
+        if ";" in stripped:
+            raise QueryObjectValidationError(
+                _("WHERE/HAVING clause cannot contain multiple statements")
+            )
+
     def _process_select_expression(
         self,
         expression: Optional[str],
@@ -3654,7 +3668,9 @@ class ExploreMixin:  # pylint: disable=too-many-public-methods
                     schema=self.schema,
                     template_processor=template_processor,
                 )
-                where_clause_and += [Grouping(self.text(where))]
+                if where:
+                    self._validate_where_having_clause(where)
+                    where_clause_and += [Grouping(self.text(where))]
             having = extras.get("having")
             if having:
                 having = self._process_select_expression(
@@ -3664,7 +3680,9 @@ class ExploreMixin:  # pylint: disable=too-many-public-methods
                     schema=self.schema,
                     template_processor=template_processor,
                 )
-                having_clause_and += [Grouping(self.text(having))]
+                if having:
+                    self._validate_where_having_clause(having)
+                    having_clause_and += [Grouping(self.text(having))]
 
         if apply_fetch_values_predicate and self.fetch_values_predicate:
             qry = qry.where(

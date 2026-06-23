@@ -871,7 +871,8 @@ WHERE datistemplate = false;
             cursor.execute(
                 "SELECT pg_terminate_backend(pid) "  # noqa: S608
                 "FROM pg_stat_activity "
-                f"WHERE pid='{cancel_query_id}'"
+                "WHERE pid = %(pid)s",
+                {"pid": int(cancel_query_id)},
             )
         except Exception:  # pylint: disable=broad-except
             return False

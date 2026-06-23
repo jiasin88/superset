@@ -463,7 +463,7 @@ class MySQLEngineSpec(BasicParametersMixin, BaseEngineSpec):
             return False
 
         try:
-            cursor.execute(f"KILL CONNECTION {cancel_query_id}")
+            cursor.execute("KILL CONNECTION %s", (int(cancel_query_id),))
         except Exception:  # pylint: disable=broad-except
             return False
 

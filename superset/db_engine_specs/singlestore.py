@@ -583,7 +583,11 @@ class SingleStoreSpec(BasicParametersMixin, BaseEngineSpec):
             return False
 
         try:
-            cursor.execute(f"KILL CONNECTION {cancel_query_id}")
+            # SingleStore cancel_query_id is "CONNECTION_ID AGGREGATOR_ID"
+            # (validated as digits + optional space-separated digits above).
+            # Use parameterized execution for the connection ID portion.
+            parts = cancel_query_id.split()
+            cursor.execute("KILL CONNECTION %s", (int(parts[0]),))
         except Exception:  # pylint: disable=broad-except
             return False
 
