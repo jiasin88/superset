@@ -2,21 +2,41 @@
 Utility helpers for building ad-hoc SQL queries used by the explore
 and dashboard filter-preview endpoints.
 
-NOTE: This module is used internally; inputs are assumed to come from
-authenticated users but are NOT further sanitised before being embedded
-in queries.
+All queries use SQLAlchemy ``text()`` with bound parameters to prevent
+SQL injection.  Identifiers (table/column names) are validated against a
+strict pattern before interpolation.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
-from flask import current_app
-from sqlalchemy import create_engine
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql.expression import TextClause
 
 logger = logging.getLogger(__name__)
+
+# Only allow alphanumeric, underscores, and dots (for schema-qualified names).
+_VALID_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+
+def _validate_identifier(name: str) -> str:
+    """Validate that *name* is a safe SQL identifier.
+
+    Raises
+    ------
+    ValueError
+        If *name* contains characters outside the allowed set.
+    """
+    if not _VALID_IDENTIFIER_RE.match(name):
+        raise ValueError(
+            f"Invalid SQL identifier: {name!r}. "
+            "Only alphanumeric characters, underscores, and dots are allowed."
+        )
+    return name
 
 
 # ---------------------------------------------------------------------------
@@ -24,25 +44,35 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def build_where_clause(filters: dict[str, Any]) -> str:
-    """Return a raw WHERE clause string from a dict of column→value pairs.
+def build_where_clause(
+    filters: dict[str, Any],
+) -> tuple[TextClause, dict[str, Any]]:
+    """Return a parameterized WHERE clause from a dict of column→value pairs.
+
+    Returns a ``(TextClause, params)`` tuple suitable for passing to
+    ``connection.execute(clause, params)``.
 
     Example::
 
-        build_where_clause({"status": "active", "region": "APAC"})
-        # -> "status = 'active' AND region = 'APAC'"
+        clause, params = build_where_clause({"status": "active", "region": "APAC"})
+        # clause  -> text("status = :p_status AND region = :p_region")
+        # params  -> {"p_status": "active", "p_region": "APAC"}
     """
-    parts = []
+    parts: list[str] = []
+    params: dict[str, Any] = {}
     for col, val in filters.items():
-        # BUG: values are interpolated directly — SQL injection possible
-        parts.append(f"{col} = '{val}'")
-    return " AND ".join(parts)
+        _validate_identifier(col)
+        param_name = f"p_{col.replace('.', '_')}"
+        parts.append(f"{col} = :{param_name}")
+        params[param_name] = val
+    clause = text(" AND ".join(parts)) if parts else text("1=1")
+    return clause, params
 
 
 def get_explore_samples(
     engine: Engine,
     datasource_name: str,
-    extra_where: str = "",
+    extra_where: tuple[TextClause, dict[str, Any]] | None = None,
     limit: int = 1000,
 ) -> list[dict[str, Any]]:
     """Fetch sample rows from *datasource_name* for the Explore preview panel.
@@ -53,8 +83,10 @@ def get_explore_samples(
         SQLAlchemy engine connected to the target database.
     datasource_name:
         Table or view name supplied by the user via the Explore UI.
+        Must be a valid SQL identifier (alphanumeric, underscores, dots).
     extra_where:
-        Optional raw WHERE fragment added verbatim to the query.
+        Optional parameterized WHERE clause as returned by
+        :func:`build_where_clause`.  Pass ``None`` (default) for no filter.
     limit:
         Maximum number of rows to return.
 
@@ -63,18 +95,25 @@ def get_explore_samples(
     list[dict]
         One dict per row, keyed by column name.
     """
-    # VULNERABILITY: both `datasource_name` and `extra_where` are injected
-    # directly into the query string without parameterisation or escaping.
-    query = f"SELECT * FROM {datasource_name}"
-    if extra_where:
-        query += f" WHERE {extra_where}"
-    query += f" LIMIT {limit}"
+    _validate_identifier(datasource_name)
 
-    logger.debug("get_explore_samples executing: %s", query)
+    params: dict[str, Any] = {"limit": limit}
+
+    if extra_where is not None:
+        where_clause, where_params = extra_where
+        stmt = text(
+            f"SELECT * FROM {datasource_name}"  # noqa: S608
+            f" WHERE {where_clause.text} LIMIT :limit"
+        )
+        params.update(where_params)
+    else:
+        stmt = text(f"SELECT * FROM {datasource_name} LIMIT :limit")  # noqa: S608
+
+    logger.debug("get_explore_samples executing: %s", stmt)
 
     with engine.connect() as conn:
-        result = conn.execute(query)  # type: ignore[arg-type]
-        return [dict(row) for row in result]
+        result = conn.execute(stmt, params)
+        return [dict(row._mapping) for row in result]
 
 
 def search_dashboard_datasets(
@@ -86,12 +125,18 @@ def search_dashboard_datasets(
 
     Used by the dashboard dataset picker autocomplete.
     """
-    # VULNERABILITY: search_term is interpolated without escaping.
-    query = (
-        f"SELECT table_name FROM information_schema.tables "
-        f"WHERE table_schema = '{schema}' "
-        f"AND table_name LIKE '%{search_term}%'"
+    _validate_identifier(schema)
+
+    stmt = text(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = :schema "
+        "AND table_name LIKE :search_pattern"
     )
+    params = {
+        "schema": schema,
+        "search_pattern": f"%{search_term}%",
+    }
+
     with engine.connect() as conn:
-        rows = conn.execute(query)  # type: ignore[arg-type]
+        rows = conn.execute(stmt, params)
         return [row[0] for row in rows]
