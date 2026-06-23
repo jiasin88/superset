@@ -10,26 +10,47 @@ jobs:
     if: github.event.label.name == 'devin-autofix'
 
     steps:
-      - name: Generate webhook signature
-        id: sign
+      - name: Sign payload and call orchestrator
+        env:
+          EVENT_JSON: ${{ toJson(github.event) }}
+          WEBHOOK_SECRET: ${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}
+          ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
-          PAYLOAD='${{ toJson(github.event) }}'
-          SIG=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "${{ secrets.ORCHESTRATOR_WEBHOOK_SECRET }}" | awk '{print "sha256="$2}')
-          echo "sig=$SIG" >> $GITHUB_OUTPUT
+          python3 - <<'PYEOF'
+          import json, os, subprocess, sys, hmac, hashlib
 
-      - name: Call Orchestrator
-        run: |
-          curl -X POST "${{ secrets.ORCHESTRATOR_URL }}/webhook/github" \
-            -H "Content-Type: application/json" \
-            -H "X-GitHub-Event: issues" \
-            -H "X-Hub-Signature-256: ${{ steps.sign.outputs.sig }}" \
-            -H "ngrok-skip-browser-warning: true" \
-            -d '${{ toJson(github.event) }}' \
-            --max-time 30 \
-            --fail-with-body
+          payload = os.environ["EVENT_JSON"]
+          secret  = os.environ["WEBHOOK_SECRET"].encode()
+          sig     = "sha256=" + hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+          url     = os.environ["ORCHESTRATOR_URL"]
 
-      - name: Log dispatch
-        if: always()
-        run: |
-          echo "Dispatched issue #${{ github.event.issue.number }} to orchestrator"
-          echo "Issue: ${{ github.event.issue.title }}"
+          result = subprocess.run([
+              "curl", "-s", "-w", "\nHTTP_STATUS:%{http_code}",
+              "-X", "POST", f"{url}/webhook/github",
+              "-H", "Content-Type: application/json",
+              "-H", "X-GitHub-Event: issues",
+              "-H", f"X-Hub-Signature-256: {sig}",
+              "-H", "ngrok-skip-browser-warning: true",
+              "--data", payload,
+              "--max-time", "30",
+          ], capture_output=True, text=True)
+
+          print(result.stdout[-200:])
+          if result.returncode != 0:
+              print(f"curl error: {result.stderr}", file=sys.stderr)
+              sys.exit(1)
+
+          # Extract HTTP status code
+          for line in result.stdout.splitlines():
+              if line.startswith("HTTP_STATUS:"):
+                  status = int(line.split(":")[1])
+                  if status >= 400:
+                      print(f"Orchestrator returned HTTP {status}", file=sys.stderr)
+                      sys.exit(1)
+
+          issue_num   = os.environ.get("ISSUE_NUMBER", "?")
+          issue_title = os.environ.get("ISSUE_TITLE", "")
+          print(f"Dispatched issue #{issue_num}: {issue_title}")
+          PYEOF
