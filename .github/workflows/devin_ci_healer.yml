@@ -6,14 +6,14 @@ on:
     types: [completed]
 
 jobs:
-  send-logs-to-devin:
+  notify-orchestrator:
     runs-on: ubuntu-latest
     if: |
-      github.event.workflow_run.conclusion == 'failure' &&
-      startsWith(github.event.workflow_run.head_branch, 'devin/')
+      startsWith(github.event.workflow_run.head_branch, 'devin/') &&
+      (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')
 
     steps:
-      - name: Send CI failure to orchestrator
+      - name: Send CI result to orchestrator
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
@@ -21,7 +21,7 @@ jobs:
           WORKFLOW_RUN_JSON: ${{ toJson(github.event.workflow_run) }}
           REPOSITORY_JSON: ${{ toJson(github.event.repository) }}
         run: |
-          export LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 | head -200 || echo "Could not fetch logs")
+          export LOGS=$(gh run view "$RUN_ID" --log-failed 2>&1 | head -200 || echo "")
 
           python3 - <<'PYEOF'
           import json, os, subprocess, sys
