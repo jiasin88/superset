@@ -1,0 +1,47 @@
+name: Devin PR Merged
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+      - main
+
+jobs:
+  notify-orchestrator:
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'devin/') && github.event.pull_request.merged == true
+
+    steps:
+      - name: Send PR merged event to orchestrator
+        env:
+          EVENT_JSON: ${{ toJson(github.event) }}
+          ORCHESTRATOR_URL: ${{ secrets.ORCHESTRATOR_URL }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, subprocess, sys
+
+          payload = os.environ["EVENT_JSON"]
+          url     = os.environ["ORCHESTRATOR_URL"]
+
+          result = subprocess.run([
+              "curl", "-s", "-w", "\nHTTP_STATUS:%{http_code}",
+              "-X", "POST", f"{url}/webhook/github",
+              "-H", "Content-Type: application/json",
+              "-H", "X-GitHub-Event: pull_request",
+              "--data", payload,
+              "--max-time", "30",
+          ], capture_output=True, text=True)
+
+          print(result.stdout[-300:])
+          if result.returncode != 0:
+              print(result.stderr, file=sys.stderr)
+              sys.exit(1)
+
+          for line in result.stdout.splitlines():
+              if line.startswith("HTTP_STATUS:"):
+                  status = int(line.split(":")[1])
+                  if status >= 400:
+                      print(f"Orchestrator returned HTTP {status}", file=sys.stderr)
+                      sys.exit(1)
+          PYEOF
