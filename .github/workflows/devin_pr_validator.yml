@@ -11,6 +11,9 @@ jobs:
   notify-orchestrator:
     runs-on: ubuntu-latest
     if: startsWith(github.head_ref, 'devin/')
+    permissions:
+      issues: write
+      pull-requests: write
 
     steps:
       - name: Notify orchestrator of PR opened
